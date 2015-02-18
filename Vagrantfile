@@ -78,7 +78,8 @@ Vagrant.configure("2") do |config|
           'innodb_flush_log_at_trx_commit' => '0',
           'server_id' => node_params['server_id'],
           'extra_mysqld_config' => "performance_schema=OFF
-skip-name-resolve", 
+skip-name-resolve
+read-only", 
        
           # Sysbench setup
           'sysbench_load' => (node_params['server_id'] == 1 ? true : false ),
@@ -96,6 +97,8 @@ skip-name-resolve",
           'mha_nodes' => mha_nodes,
         }
       }
+      
+			provision_puppet( node_config, "employees.pp" )
       
 
       # Providers
@@ -127,6 +130,11 @@ skip-name-resolve",
         }
       }
 			provision_puppet( node_config, "sysbench.pp" )
+      
+      node_config.vm.provision "golang", type: "shell" do |s|
+        s.inline = "yum install golang git -y"
+      end
+      
 			provider_virtualbox( name, node_config, 256 )
 
 		end
