@@ -19,6 +19,7 @@ const (
   max_idle int = 0  // Can't keep idle conns open b/c of: https://github.com/go-sql-driver/mysql/issues/257
   concurrency = 5 // Keep this script from blasting the database
   retry_delay = 500 * time.Millisecond
+  lag = 500 * time.Millisecond
 )
 
 func main() {
@@ -50,7 +51,7 @@ func main() {
     ch := make( chan int )
     start := time.Now()
   	rows, err := writer.Query( 
-      `select film_id, title from film where film_id > ? 
+      `select film_id from film where film_id > ? 
         order by film_id asc limit ?`, last_id, concurrency)
     if err != nil {
       log.Print( "Query error: ", err )
@@ -63,8 +64,7 @@ func main() {
     var rows_fetched int
     for rows.Next() {      
       var film_id int
-      var title string
-      err = rows.Scan( &film_id, &title )
+      err = rows.Scan( &film_id )
       if err != nil {
         log.Fatal( "Scan error: ", err )
       }
@@ -104,12 +104,12 @@ func main() {
 
 // process_film generates a summary of sales by store for the given film_id and inserts the results in to the following table:
 // CREATE TABLE film_rentals_summary(
-//   store_id tinyint(3) unsigned not null,
 //   film_id smallint(5) unsigned not null,
 //   title varchar(255) not null,
+//   stores int unsigned not null,
 //   rentals int unsigned not null,
 //   rental_total decimal(5,2) not null,
-//   PRIMARY KEY( store_id, film_id ),
+//   PRIMARY KEY( film_id ),
 //   KEY( title(20) )
 // );
 func process_film( film_id int, ch chan int ) {
@@ -135,21 +135,21 @@ func process_film( film_id int, ch chan int ) {
   // Get the data for our film first
   var (
     title string
-    store_id, rental_count int
+    store_count, rental_count int
     rental_total float64
   )
 	err = trx.QueryRow( 
-    `select title, store_id, count(rental_id) as count, 
+    `select title, count( distinct store_id) as stores, count( distinct rental_id) as count, 
         ifnull( sum(amount), 0.0 ) as total_payments 
-      from film join inventory using( film_id ) 
+      from film left join inventory using( film_id ) 
         left join rental using( inventory_id ) 
         left join payment using( rental_id ) 
       where film_id=?
-      group by film_id`, film_id).Scan(&title, &store_id, 
+      group by film_id`, film_id).Scan(&title, &store_count, 
         &rental_count, &rental_total)
   switch {
   case err == sql.ErrNoRows:
-    // No rows (likely due to the JOIN). We don't do anything here.
+    // No results, we don't do anything here.
     trx.Rollback()
     ch <- 1
     return
@@ -159,15 +159,15 @@ func process_film( film_id int, ch chan int ) {
   }
   
   // Inject some application TX processing lag
-  time.Sleep( retry_delay )
+  time.Sleep( lag )
   
   // Insert the summarized data into the summary table
   _, err = trx.Exec(`insert into film_rentals_summary 
-    (store_id, film_id, title, rentals, rental_total) 
+    (film_id, title, stores, rentals, rental_total) 
     values (?, ?, ?, ?, ?)
     on duplicate key update title=values(title), 
       rentals=values(rentals), rental_total=values(rental_total)`, 
-    store_id, film_id, title, rental_count, rental_total)
+    film_id, title, store_count, rental_count, rental_total)
   if err != nil {
     rollback_and_try_again( "Could not insert: " )
     return
