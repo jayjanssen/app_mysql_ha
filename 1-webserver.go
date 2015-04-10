@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"math/rand"
 )
 
 const (
@@ -22,9 +21,7 @@ const (
 var writer *sql.DB
 var hits int
 
-func main() {
-	rand.Seed(time.Now().Unix())
-	
+func main() {	
 	// Setup our SQL pool
 	writer, _ = sql.Open(`mysql`,
 		fmt.Sprintf("%s:%s@tcp(%s)/%s?%s", user, pass, writer_ip, schema))

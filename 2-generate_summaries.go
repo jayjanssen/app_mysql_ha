@@ -19,7 +19,7 @@ const (
   max_idle int = 0  // Can't keep idle conns open b/c of: https://github.com/go-sql-driver/mysql/issues/257
   concurrency = 5 // Keep this script from blasting the database
   retry_delay = 500 * time.Millisecond
-  lag = 500 * time.Millisecond
+  lag = 50 * time.Millisecond
 )
 
 func main() {
